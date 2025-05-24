@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--lr', type=float, help='Learning rate (default: paper values)')
     parser.add_argument('--temperature', type=float, help='Temperature (default: paper values)')
     parser.add_argument('--epochs', type=int, help='Number of epochs (default: paper values)')
+    parser.add_argument('--one_idx_class', type=int, default=None, help='Select only one class for training (default: None, use full dataset)')
     
     args = parser.parse_args()
     
@@ -38,13 +39,15 @@ def main():
             batch_size=args.batch_size,
             learning_rate=args.lr,
             temperature=args.temperature,
-            epochs=args.epochs
+            epochs=args.epochs,
+            one_idx_class=args.one_idx_class
         )
         
         # Create dataloader
         dataloader = create_dataloader(
             dataset_name=args.dataset,
-            batch_size=trainer.batch_size
+            batch_size=trainer.batch_size,
+            one_idx_class=args.one_idx_class  # Set to None for full dataset, or specify a class index for filtering
         )
         
         # Train

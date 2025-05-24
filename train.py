@@ -10,6 +10,8 @@ from model import SimCLRModel
 from loss import NTXentLoss
 from data_augmentation import SimCLRAugmentation
 
+from torch.utils.data import Subset
+
 class LARS(optim.Optimizer):
     """LARS optimizer from paper - Layer-wise Adaptive Rate Scaling
     
@@ -66,10 +68,11 @@ class SimCLRTrainer:
     Handles the complete training pipeline with paper-exact hyperparameters.
     """
     def __init__(self, model, device, dataset='imagenet', batch_size=None, 
-                 learning_rate=None, temperature=None, weight_decay=1e-4, epochs=None):
+                 learning_rate=None, temperature=None, weight_decay=1e-4, epochs=None, one_idx_class=None):
         self.model = model.to(device)
         self.device = device
         self.dataset = dataset
+        self.one_idx_class = one_idx_class
         
         # Paper-exact configurations
         if dataset == 'cifar10':
@@ -129,11 +132,10 @@ class SimCLRTrainer:
         
         return lr
     
-    def train_epoch(self, dataloader, epoch):
+    def train_epoch(self, dataloader, epoch, num_batches):
         """Train for one epoch"""
         self.model.train()
         total_loss = 0
-        num_batches = len(dataloader)
         
         for batch_idx, (images, _) in enumerate(tqdm(dataloader, desc=f"Epoch {epoch+1}")):
             # Adjust learning rate
@@ -171,20 +173,22 @@ class SimCLRTrainer:
         print(f"Epochs: {self.epochs}")
         print(f"Weight Decay: {self.weight_decay}")
         print(f"Optimizer: {'LARS' if self.batch_size >= 1024 else 'SGD'}")
-        
+        print(f"one_idx_class: {self.one_idx_class}")
+        num_batches = len(dataloader)
         for epoch in range(self.epochs):
-            avg_loss = self.train_epoch(dataloader, epoch)
+            avg_loss = self.train_epoch(dataloader, epoch, num_batches)
             
             print(f"Epoch [{epoch+1}/{self.epochs}], Loss: {avg_loss:.4f}")
             
             # Save checkpoint every 50 epochs
             if (epoch + 1) % 50 == 0:
-                checkpoint_path = os.path.join(save_dir, f"simclr_epoch_{epoch+1}.pth")
+                checkpoint_path = os.path.join(save_dir, f"idx_{self.one_idx_class}_simclr_epoch_{epoch+1}.pth")
                 torch.save({
                     'epoch': epoch + 1,
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': self.optimizer.state_dict(),
                     'loss': avg_loss,
+                    'one_idx_class': self.one_idx_class,
                     'config': {
                         'dataset': self.dataset,
                         'batch_size': self.batch_size,
@@ -194,21 +198,41 @@ class SimCLRTrainer:
                 }, checkpoint_path)
                 print(f"Checkpoint saved: {checkpoint_path}")
 
-def create_dataloader(dataset_name='cifar10', batch_size=512, num_workers=4):
+
+
+def get_subclass_dataset(dataset, classes):
+    if not isinstance(classes, list):
+        classes = [classes]
+
+    indices = []
+    for idx, tgt in enumerate(dataset.targets):
+        if tgt in classes:
+            indices.append(idx)
+
+    dataset = Subset(dataset, indices)
+    return dataset
+
+
+def create_dataloader(dataset_name='cifar10', batch_size=512, num_workers=4, one_idx_class=None):
     """Create dataloader with paper-exact augmentations"""
     if dataset_name == 'cifar10':
         transform = SimCLRAugmentation(size=32, dataset='cifar10', s=0.5)  # Paper uses s=0.5 for CIFAR-10
         dataset = datasets.CIFAR10(
-            root='./data', train=True, download=True, transform=transform
+            root='D:/Datasets/data/', train=True, download=True, transform=transform
         )
+
     elif dataset_name == 'imagenet':
         transform = SimCLRAugmentation(size=224, dataset='imagenet', s=1.0)
         dataset = datasets.ImageNet(
-            root='./data/imagenet', split='train', transform=transform
+            root='D:/Datasets/data/imagenet', split='train', transform=transform
         )
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
     
+    if one_idx_class:
+        # If one_idx_class is True, filter dataset to only include class 1
+        dataset = get_subclass_dataset(dataset, classes=one_idx_class)
+
     dataloader = DataLoader(
         dataset, batch_size=batch_size, shuffle=True, 
         num_workers=num_workers, pin_memory=True, drop_last=True
@@ -222,6 +246,7 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     
     # CIFAR-10 configuration (paper exact)
+    one_idx_class = 3 # Set to None for full dataset, or specify a class index for filtering
     dataset_name = 'cifar10'
     model = SimCLRModel(base_model='resnet18', out_dim=128)
     
@@ -237,7 +262,8 @@ if __name__ == "__main__":
     dataloader = create_dataloader(
         dataset_name=dataset_name,
         batch_size=trainer.batch_size,
-        num_workers=4
+        num_workers=4,
+        one_idx_class=one_idx_class  
     )
     
     # Train the model
