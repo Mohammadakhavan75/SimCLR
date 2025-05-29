@@ -40,11 +40,11 @@ class LARS(optim.Optimizer):
                 if param_norm != 0 and grad_norm != 0:
                     # Compute layer-wise LR
                     local_lr = eta * param_norm / (grad_norm + weight_decay * param_norm)
-                    local_lr = min(local_lr, lr)
+                    local_lr = min(local_lr, 1.0) * lr  # Apply global LR scaling
                 else:
                     local_lr = lr
 
-                # Apply weight decay
+                # Apply weight decay to gradient
                 if weight_decay != 0:
                     p.grad.data.add_(p.data, alpha=weight_decay)
 
@@ -53,10 +53,10 @@ class LARS(optim.Optimizer):
                 if len(param_state) == 0:
                     param_state['momentum_buffer'] = torch.zeros_like(p.data)
                 buf = param_state['momentum_buffer']
-                buf.mul_(momentum).add_(p.grad.data)
+                buf.mul_(momentum).add_(p.grad.data, alpha=local_lr)
 
                 # Apply update
-                p.data.add_(buf, alpha=-local_lr)
+                p.data.add_(buf, alpha=-1.0)
 
         return loss
 
@@ -66,7 +66,7 @@ class SimCLRTrainer:
     Handles the complete training pipeline with paper-exact hyperparameters.
     """
     def __init__(self, model, device, dataset='imagenet', batch_size=None, 
-                 learning_rate=None, temperature=None, weight_decay=1e-4, epochs=None):
+                 learning_rate=None, temperature=None, weight_decay=1e-6, epochs=None):
         self.model = model.to(device)
         self.device = device
         self.dataset = dataset
@@ -75,12 +75,12 @@ class SimCLRTrainer:
         if dataset == 'cifar10':
             self.batch_size = batch_size or 512
             self.learning_rate = learning_rate or 1.0
-            self.temperature = temperature or 0.5
+            self.temperature = temperature or 0.5  # Paper uses 0.5 for CIFAR-10
             self.epochs = epochs or 1000
         else:  # ImageNet
             self.batch_size = batch_size or 4096
-            self.learning_rate = learning_rate or 0.075  # With sqrt scaling
-            self.temperature = temperature or 0.1
+            self.learning_rate = learning_rate or 0.3  # Base LR for ImageNet
+            self.temperature = temperature or 0.07  # Paper uses 0.07 for ImageNet
             self.epochs = epochs or 100
         
         self.weight_decay = weight_decay
@@ -122,7 +122,7 @@ class SimCLRTrainer:
         
         # Apply sqrt scaling for large batch sizes
         if self.batch_size >= 1024:
-            lr = lr * math.sqrt(self.batch_size / 256)
+            lr = lr * (self.batch_size / 256)  # Linear scaling as in paper
         
         for param_group in self.optimizer.param_groups:
             param_group['lr'] = lr
@@ -199,12 +199,12 @@ def create_dataloader(dataset_name='cifar10', batch_size=512, num_workers=4):
     if dataset_name == 'cifar10':
         transform = SimCLRAugmentation(size=32, dataset='cifar10', s=0.5)  # Paper uses s=0.5 for CIFAR-10
         dataset = datasets.CIFAR10(
-            root='./data', train=True, download=True, transform=transform
+            root='/Users/mohammad/Documents/projects/Datasets/data', train=True, download=True, transform=transform
         )
     elif dataset_name == 'imagenet':
         transform = SimCLRAugmentation(size=224, dataset='imagenet', s=1.0)
         dataset = datasets.ImageNet(
-            root='./data/imagenet', split='train', transform=transform
+            root='/Users/mohammad/Documents/projects/Datasets/data', split='train', transform=transform
         )
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")
