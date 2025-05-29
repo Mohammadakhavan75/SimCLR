@@ -256,18 +256,18 @@ def get_subclass_dataset(dataset, classes):
     return dataset
 
 
-def create_dataloader(dataset_name='cifar10', batch_size=512, num_workers=4, one_idx_class=None):
+def create_dataloader(dataset_name='cifar10', batch_size=512, num_workers=4, one_idx_class=None, data_path='./data'):
     """Create dataloader with paper-exact augmentations"""
     if dataset_name == 'cifar10':
         transform = SimCLRAugmentation(size=32, dataset='cifar10', s=0.5)  # Paper uses s=0.5 for CIFAR-10
         dataset = datasets.CIFAR10(
-            root='D:/Datasets/data/', train=True, download=True, transform=transform
+            root=data_path, train=True, download=True, transform=transform
         )
 
     elif dataset_name == 'imagenet':
         transform = SimCLRAugmentation(size=224, dataset='imagenet', s=1.0)
         dataset = datasets.ImageNet(
-            root='D:/Datasets/data/imagenet', split='train', transform=transform
+            root=data_path, split='train', transform=transform
         )
     else:
         raise ValueError(f"Unsupported dataset: {dataset_name}")

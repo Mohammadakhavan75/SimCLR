@@ -129,7 +129,7 @@ class LinearEvaluator:
         
         return 100. * correct / total
 
-def create_eval_dataloaders(dataset_name='cifar10', batch_size=256):
+def create_eval_dataloaders(dataset_name='cifar10', batch_size=256, data_path='./data'):
     """Create dataloaders for linear evaluation"""
     if dataset_name == 'cifar10':
         transform_train = transforms.Compose([
@@ -144,8 +144,8 @@ def create_eval_dataloaders(dataset_name='cifar10', batch_size=256):
             transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010])
         ])
         
-        train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transform_train)
-        test_dataset = datasets.CIFAR10(root='./data', train=False, transform=transform_test)
+        train_dataset = datasets.CIFAR10(root=data_path, train=True, transform=transform_train)
+        test_dataset = datasets.CIFAR10(root=data_path, train=False, transform=transform_test)
         num_classes = 10
     
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)

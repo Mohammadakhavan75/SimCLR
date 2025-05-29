@@ -47,7 +47,8 @@ def main():
         dataloader = create_dataloader(
             dataset_name=args.dataset,
             batch_size=trainer.batch_size,
-            one_idx_class=args.one_idx_class  # Set to None for full dataset, or specify a class index for filtering
+            one_idx_class=args.one_idx_class,  # Set to None for full dataset, or specify a class index for filtering
+            data_path='./data'  # Configurable data path
         )
         
         # Train
