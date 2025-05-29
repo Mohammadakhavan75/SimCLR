@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 import torchvision.datasets as datasets
 from tqdm import tqdm
 import os
-import math
+import math # for LARS optimizer
 
 from model import SimCLRModel
 from loss import NTXentLoss
@@ -13,52 +13,93 @@ from data_augmentation import SimCLRAugmentation
 from torch.utils.data import Subset
 
 class LARS(optim.Optimizer):
-    """LARS optimizer from paper - Layer-wise Adaptive Rate Scaling
-    
-    Paper uses LARS optimizer for large batch training.
     """
-    def __init__(self, params, lr=1.0, momentum=0.9, weight_decay=1e-4, eta=1e-3):
-        defaults = dict(lr=lr, momentum=momentum, weight_decay=weight_decay, eta=eta)
+    LARS optimizer, implementation from PyTorch Lightning Bolts
+    https://github.com/Lightning-AI/lightning-bolts/blob/master/pl_bolts/optimizers/lars.py
+    """
+    def __init__(
+        self,
+        params,
+        lr,
+        momentum=0.9,
+        weight_decay=1e-6, # Paper: 10^-6 for SimCLR
+        trust_coefficient=0.001,
+        eps=1e-8,
+    ):
+        if lr <= 0.0:
+            raise ValueError("Invalid learning rate: {}".format(lr))
+        if momentum < 0.0:
+            raise ValueError("Invalid momentum value: {}".format(momentum))
+        if weight_decay < 0.0:
+            raise ValueError("Invalid weight_decay value: {}".format(weight_decay))
+        if trust_coefficient <= 0.0:
+            raise ValueError("Invalid trust_coefficient value: {}".format(trust_coefficient))
+        if eps < 0.0:
+            raise ValueError("Invalid epsilon value: {}".format(eps))
+
+        defaults = dict(
+            lr=lr,
+            momentum=momentum,
+            weight_decay=weight_decay,
+            trust_coefficient=trust_coefficient,
+            eps=eps,
+        )
         super().__init__(params, defaults)
 
+    @torch.no_grad()
     def step(self, closure=None):
         loss = None
         if closure is not None:
-            loss = closure()
+            with torch.enable_grad():
+                loss = closure()
 
         for group in self.param_groups:
-            weight_decay = group['weight_decay']
-            momentum = group['momentum']
-            eta = group['eta']
-            lr = group['lr']
+            weight_decay = group["weight_decay"]
+            momentum = group["momentum"]
+            trust_coefficient = group["trust_coefficient"]
+            lr = group["lr"]
+            eps = group["eps"]
 
-            for p in group['params']:
+            for p in group["params"]:
                 if p.grad is None:
                     continue
 
-                param_norm = torch.norm(p.data)
-                grad_norm = torch.norm(p.grad.data)
-
-                if param_norm != 0 and grad_norm != 0:
-                    # Compute layer-wise LR
-                    local_lr = eta * param_norm / (grad_norm + weight_decay * param_norm)
-                    local_lr = min(local_lr, lr)
-                else:
-                    local_lr = lr
+                grad = p.grad.data
 
                 # Apply weight decay
                 if weight_decay != 0:
-                    p.grad.data.add_(p.data, alpha=weight_decay)
+                    # Perform weight decay by subtracting L2 penalty from gradient
+                    # As in AdamW: grad = grad + weight_decay * p.data
+                    # SimCLR paper mentions LARS + Adam style weight decay.
+                    # Standard LARS applies WD to the param update.
+                    # Let's follow common LARS: p.data.add_(p.data, alpha=-weight_decay * lr)
+                    # Or, add to gradient:
+                    grad.add_(p.data, alpha=weight_decay)
 
-                # Apply momentum
+
+                # Compute LARS trust ratio
+                param_norm = torch.norm(p.data)
+                grad_norm = torch.norm(grad)
+
+                # Compute local learning rate
+                # local_lr = lr * trust_coefficient * param_norm / (grad_norm + eps) if param_norm > 0 and grad_norm > 0 else lr
+                if param_norm > 0 and grad_norm > 0:
+                    local_lr = trust_coefficient * param_norm / (grad_norm + eps + weight_decay * param_norm) # WD term in denom for stability
+                else:
+                    local_lr = 1.0 # If either is zero, use global LR scaling factor of 1
+
+
+                # Update the momentum term
                 param_state = self.state[p]
-                if len(param_state) == 0:
-                    param_state['momentum_buffer'] = torch.zeros_like(p.data)
-                buf = param_state['momentum_buffer']
-                buf.mul_(momentum).add_(p.grad.data)
+                if "momentum_buffer" not in param_state:
+                    param_state["momentum_buffer"] = torch.clone(grad).detach()
+                
+                buf = param_state["momentum_buffer"]
+                buf.mul_(momentum).add_(grad, alpha=local_lr) # Update momentum buffer: m = beta*m + local_lr*g
+                
+                # Update parameters
+                p.data.add_(buf, alpha=-lr) # p = p - global_lr * m
 
-                # Apply update
-                p.data.add_(buf, alpha=-local_lr)
 
         return loss
 
@@ -73,6 +114,7 @@ class SimCLRTrainer:
         self.device = device
         self.dataset = dataset
         self.one_idx_class = one_idx_class
+        # For replicating SimCLR paper results, one_idx_class should be None to use the full dataset.
         
         # Paper-exact configurations
         if dataset == 'cifar10':
@@ -97,7 +139,8 @@ class SimCLRTrainer:
                 self.model.parameters(),
                 lr=self.learning_rate,
                 momentum=0.9,
-                weight_decay=self.weight_decay
+                weight_decay=self.weight_decay,
+                trust_coefficient=0.001
             )
         else:
             # For smaller batches, use SGD as in paper
@@ -230,7 +273,8 @@ def create_dataloader(dataset_name='cifar10', batch_size=512, num_workers=4, one
         raise ValueError(f"Unsupported dataset: {dataset_name}")
     
     if one_idx_class:
-        # If one_idx_class is True, filter dataset to only include class 1
+        # For replicating SimCLR paper results, one_idx_class should typically be None.
+        # This filter is for specific debugging or analysis on a single class.
         dataset = get_subclass_dataset(dataset, classes=one_idx_class)
 
     dataloader = DataLoader(
@@ -246,7 +290,8 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     
     # CIFAR-10 configuration (paper exact)
-    one_idx_class = 3 # Set to None for full dataset, or specify a class index for filtering
+    one_idx_class = 3 # Set to None for full dataset, or specify a class index for filtering.
+                          # For replicating SimCLR paper results, this should be None.
     dataset_name = 'cifar10'
     model = SimCLRModel(base_model='resnet18', out_dim=128)
     

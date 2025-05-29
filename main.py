@@ -18,7 +18,7 @@ def main():
     parser.add_argument('--lr', type=float, help='Learning rate (default: paper values)')
     parser.add_argument('--temperature', type=float, help='Temperature (default: paper values)')
     parser.add_argument('--epochs', type=int, help='Number of epochs (default: paper values)')
-    parser.add_argument('--one_idx_class', type=int, default=None, help='Select only one class for training (default: None, use full dataset)')
+    parser.add_argument('--one_idx_class', type=int, default=None, help='Select only one class for training (default: None, use full dataset). For replicating SimCLR paper results, this should be None.')
     
     args = parser.parse_args()
     

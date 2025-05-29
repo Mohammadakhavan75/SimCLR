@@ -62,4 +62,4 @@ class SimCLRModel(nn.Module):
         # Apply projection head
         projections = self.projection_head(features)
         
-        return features, projections
+        return features, F.normalize(projections, p=2, dim=-1)

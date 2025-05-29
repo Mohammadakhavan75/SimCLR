@@ -42,7 +42,7 @@ class SimCLRAugmentation:
             color_jitter = transforms.ColorJitter(0.8*s, 0.8*s, 0.8*s, 0.2*s)
             
             self.transform = transforms.Compose([
-                transforms.RandomResizedCrop(size=size, scale=(0.2, 1.0)),
+                transforms.RandomResizedCrop(size=size, scale=(0.08, 1.0)),
                 transforms.RandomHorizontalFlip(p=0.5),
                 transforms.RandomApply([color_jitter], p=0.8),
                 transforms.RandomGrayscale(p=0.2),

@@ -44,7 +44,8 @@ class LinearEvaluator:
         self.classifier = LinearClassifier(feature_dim, num_classes).to(device)
         
         # Optimizer for classifier only
-        self.optimizer = optim.Adam(self.classifier.parameters(), lr=1e-3)
+        self.optimizer = optim.SGD(self.classifier.parameters(), lr=0.1, momentum=0.9)
+        self.scheduler = optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=[30, 60, 80], gamma=0.1)
         self.criterion = nn.CrossEntropyLoss()
     
     def extract_features(self, dataloader):
@@ -102,6 +103,8 @@ class LinearEvaluator:
             
             if epoch % 10 == 0:
                 print(f"Epoch {epoch}: Train Acc: {train_acc:.2f}%, Val Acc: {val_acc:.2f}%, Best: {best_acc:.2f}%")
+            
+            self.scheduler.step()
         
         return best_acc
     
@@ -133,12 +136,12 @@ def create_eval_dataloaders(dataset_name='cifar10', batch_size=256):
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010])
         ])
         
         transform_test = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=[0.4914, 0.4822, 0.4465], std=[0.2023, 0.1994, 0.2010])
         ])
         
         train_dataset = datasets.CIFAR10(root='./data', train=True, transform=transform_train)
